@@ -1,0 +1,321 @@
+- hosts:
+    - all
+  remote_user: "{{ansible_user}}"
+  gather_facts: false
+  max_fail_percentage: 0
+  tasks:
+    - block:
+        - name: Gather facts
+          setup:
+            gather_subset:
+              - 'all'
+          register: gather_fact_data
+        - include_vars:
+            file: "vars.yaml"
+
+        - name: unarchiving
+          shell: >
+            unzip {{patch_name}}.zip
+
+        # Lambda Layers Deployment
+        - name: checking lambda layers  folder exists
+          stat:
+            path: "{{ playbook_dir }}/{{patch_name}}/lambda-layers"
+          register: layers_folder 
+
+        - block:
+            - name: Installing Lambda layers for "{{ stage }}"
+              serverless:
+                service_path: "{{ playbook_dir }}/{{patch_name}}/lambda-layers"
+                stage: "{{ stage }}"
+                region: "{{ region }}"
+                #state: absent
+              register: lambda_layers
+
+            - debug:
+                msg: "{{ lambda_layers }}"
+
+            - name: Lambda layers Cloud Formation stack Information
+              cloudformation_info:
+                stack_name: "{{ lambda_layers.service_name }}"
+                region: "{{ region }}"
+              register: lambda_layers_facts
+
+            - debug:
+                msg:    
+                - "{{ lambda_layers_facts['cloudformation'][lambda_layers.service_name]['stack_outputs']['CommonUtilitiesLambdaLayerQualifiedArn'] }}"
+                - "{{ lambda_layers_facts['cloudformation'][lambda_layers.service_name]['stack_outputs']['DataAccessLayerLambdaLayerQualifiedArn'] }}"
+                - "{{ lambda_layers_facts['cloudformation'][lambda_layers.service_name]['stack_outputs']['OracleClientLambdaLayerQualifiedArn'] }}"
+
+            - set_fact:
+                CommonUtilitiesLambdaLayerQualifiedArn: "{{ lambda_layers_facts['cloudformation'][lambda_layers.service_name]['stack_outputs']['CommonUtilitiesLambdaLayerQualifiedArn'] }}"
+            - set_fact:
+                DataAccessLayerLambdaLayerQualifiedArn: "{{ lambda_layers_facts['cloudformation'][lambda_layers.service_name]['stack_outputs']['DataAccessLayerLambdaLayerQualifiedArn'] }}"
+            - set_fact:
+                OracleClientLambdaLayerQualifiedArn: "{{ lambda_layers_facts['cloudformation'][lambda_layers.service_name]['stack_outputs']['OracleClientLambdaLayerQualifiedArn'] }}"
+            - debug:
+                msg:
+                - "{{ CommonUtilitiesLambdaLayerQualifiedArn }}"
+                - "{{ DataAccessLayerLambdaLayerQualifiedArn }}"
+                - "{{ OracleClientLambdaLayerQualifiedArn }}" 
+          when: layers_folder.stat.exists              
+          rescue:
+            - debug:
+                msg: "this is lambda layers block"  
+
+        - name: Failing the deployment, layers folder is not available in the patch
+          fail:
+            msg: "Failing the deployment, layers folder is not available in the patch" 
+          when: not layers_folder.stat.exists       
+
+        # SWAP Lamdba  Code
+        - name: checking swap lambda folder exists
+          stat:
+            path: "{{ playbook_dir }}/{{patch_name}}/apigateway-swap-lambda"
+          register: swap_folder
+
+        - block:
+            - name: Installing Bucket Plugin for SWAP Lambdas
+              shell: >
+                cd {{ playbook_dir }}/{{patch_name}}/apigateway-swap-lambda;
+                serverless plugin install -n serverless-deployment-bucket
+              register: swap_bucket_plugin
+
+            - name: Making env file from existing env file
+              shell: >
+                cd {{ playbook_dir }}/{{patch_name}}/apigateway-swap-lambda;
+                cp .env.london-{{ stage }} .env.{{stage}};
+              register: swap_env_file
+
+            - name: Installing NPM Modules for SWAP Lambdas
+              shell: >
+                cd {{ playbook_dir }}/{{patch_name}}/apigateway-swap-lambda;
+                npm install
+            
+            - name: updating layers in ARNs .env.{{stage}} file for SWAP Lambda
+              shell: >
+                cd {{ playbook_dir }}/{{patch_name}}/apigateway-swap-lambda;
+                sed -i "s/Layers_OracleClient=.*/Layers_OracleClient={{ OracleClientLambdaLayerQualifiedArn }}/g" .env.{{stage}};
+                sed -i "s/Layers_OracleDataAccess=.*/Layers_OracleDataAccess={{ DataAccessLayerLambdaLayerQualifiedArn }}/g" .env.{{stage}};
+                sed -i "s/Layers_CommonUtility=.*/Layers_CommonUtility={{ CommonUtilitiesLambdaLayerQualifiedArn }}/g" .env.{{stage}}
+
+              register: update_env_file_swap
+            - debug:
+                msg: "{{ update_env_file_swap }}"
+
+            - name: Deploying SWAP Lambda Functions
+              serverless:
+                service_path: "{{ playbook_dir }}/{{patch_name}}/apigateway-swap-lambda"
+                stage: "{{ stage }}"
+                region: "{{ region }}"
+                #state: absent
+              register: swap_lambdas
+
+            - name: SWAP Lambda Stack information 
+              cloudformation_info:
+                stack_name: "{{ swap_lambdas.service_name }}"
+                region: "{{ region }}"
+              register: swap_lambdas_facts
+
+            - debug:
+                msg:  "{{ swap_lambdas_facts }}"
+          when: swap_folder.stat.exists  
+
+          rescue:
+            - debug:
+                msg: "this is swap lambda deployment block"
+        - debug:
+            msg: "SWAP lambda folder does not exist"
+          when: not swap_folder.stat.exists  
+
+
+    # digitalbanking-config-encryption-only Lambda preparation Code
+        - name: checking digitalbanking lambda folder exists
+          stat:
+            path: "{{ playbook_dir }}/{{patch_name}}/digitalbanking-config-encryption-only"
+          register: digitalbanking_folder        
+
+        #- meta: end_play ######### Testinggg
+
+        - block:
+            - name: Installing Bucket Plugin for digitalbanking-config-encryption-only Lambdas
+              shell: >
+                cd {{ playbook_dir }}/{{patch_name}}/digitalbanking-config-encryption-only;
+                serverless plugin install -n serverless-deployment-bucket
+              register: dgb_plugin
+
+            - name: Making env file from existing env file for digitalbanking-config-encryption-only Lambdas
+              shell: >
+                cd {{ playbook_dir }}/{{patch_name}}/digitalbanking-config-encryption-only;
+                cp .env.london-{{ stage }} .env.{{stage}};
+              register: dgb_env_file
+
+            - name: Installing NPM Modules for digitalbanking-config-encryption-only Lambdas
+              shell: >
+                cd {{ playbook_dir }}/{{patch_name}}/digitalbanking-config-encryption-only;
+                npm install
+
+            - name: updating layers in ARNs .env.{{stage}} file for digitalbanking-config-encryption-only Lambdas
+              shell: >
+                cd {{ playbook_dir }}/{{patch_name}}/digitalbanking-config-encryption-only;
+                sed -i "s/Layers_CommonUtility=.*/Layers_CommonUtility={{ CommonUtilitiesLambdaLayerQualifiedArn }}/g" .env.{{stage}}
+              register: update_env_file_dgb
+            - debug:
+                msg: "{{ update_env_file_dgb }}"
+
+            - name: Deploying digitalbanking-config-encryption-only  Lambda Functions
+              serverless:
+                service_path: "{{ playbook_dir }}/{{patch_name}}/digitalbanking-config-encryption-only"
+                stage: "{{ stage }}"
+                region: "{{ region }}"
+                #state: absent
+              register: dgb_lambdas
+
+            - name: digitalbanking-config-encryption-only Lambda Stack information
+              cloudformation_info:
+                stack_name: "{{ dgb_lambdas.service_name }}"
+                region: "{{ region }}"
+              register: dgb_lambdas_facts
+
+            - debug:
+                msg:  "{{ dgb_lambdas_facts }}"
+          when: digitalbanking_folder.stat.exists     
+
+          rescue:
+            - debug:
+                msg: "this is dgb lambda block"        
+        - debug:
+            msg: "digitalbanking lambda folder does not exist"
+          when: not digitalbanking_folder.stat.exists   
+
+
+    # apigatway private    
+        - name: checking apigatway private lambda folder exists
+          stat:
+            path: "{{ playbook_dir }}/{{patch_name}}/apigateway-private-lambda"
+          register: private_folder 
+
+        - block:
+            - name: Installing Bucket Plugin for apigateway-private Lambdas
+              shell: >
+                cd {{ playbook_dir }}/{{patch_name}}/apigateway-private-lambda;
+                serverless plugin install -n serverless-deployment-bucket
+              register: private_plugin
+
+            - name: Making env file from existing env file for digitalbanking-config-encryption-only Lambdas
+              shell: >
+                cd {{ playbook_dir }}/{{patch_name}}/apigateway-private-lambda;
+                cp .env.london-{{ stage }} .env.{{stage}};
+              register: dgb_env_file
+
+            - name: Installing NPM Modules for apigateway-private Lambdas
+              shell: >
+                cd {{ playbook_dir }}/{{patch_name}}/apigateway-private-lambda;
+                npm install
+
+            - name: updating layers in ARNs .env.{{stage}} file for apigateway-private Lambdas
+              shell: >
+                cd {{ playbook_dir }}/{{patch_name}}/apigateway-private-lambda;
+                sed -i "s/Layers_OracleClient=.*/Layers_OracleClient={{ OracleClientLambdaLayerQualifiedArn }}/g" .env.{{stage}};
+                sed -i "s/Layers_OracleDataAccess=.*/Layers_OracleDataAccess={{ DataAccessLayerLambdaLayerQualifiedArn }}/g" .env.{{stage}};
+                sed -i "s/Layers_CommonUtility=.*/Layers_CommonUtility={{ CommonUtilitiesLambdaLayerQualifiedArn }}/g" .env.{{stage}}
+              register: update_env_file_private
+            - debug:
+                msg: "{{ update_env_file_private }}"
+
+
+            - name: Deploying apigateway-private-lambda Lambda Functions
+              serverless:
+                service_path: "{{ playbook_dir }}/{{patch_name}}/apigateway-private-lambda"
+                stage: "{{ stage }}"
+                region: "{{ region }}"
+                #state: absent
+              register: apigatewayprivate_lambdas
+
+            - name: apigateway-private-lambda Lambda Stack information
+              cloudformation_info:
+                stack_name: "{{ apigatewayprivate_lambdas.service_name }}"
+                region: "{{ region }}"
+              register: apigatewayprivate_lambdas_facts
+
+            - debug:
+                msg:  "{{ apigatewayprivate_lambdas_facts }}"
+          when: private_folder.stat.exists                   
+          rescue:
+            - debug:
+                msg: "this is private lambda block"
+        - debug:
+            msg: "private lambda folder does not exist"
+          when: not private_folder.stat.exists    
+
+
+    # Cloud Watch lambdass
+        - name: checking cloudwatch rules lambda folder exists
+          stat:
+            path: "{{ playbook_dir }}/{{patch_name}}/cloudwatch-rules"
+          register: cloudwatch_folder 
+
+        - block:
+            - name: Installing Bucket Plugin for CloudWatch Lambdas
+              shell: >
+                cd {{ playbook_dir }}/{{patch_name}}/cloudwatch-rules;
+                serverless plugin install -n serverless-deployment-bucket
+              register: cloudwatch_plugin
+
+            - name: Making env file from existing env file for digitalbanking-config-encryption-only Lambdas
+              shell: >
+                cd {{ playbook_dir }}/{{patch_name}}/cloudwatch-rules;
+                cp .env.london-{{ stage }} .env.{{stage}};
+              register: cloudwatch_env_file
+
+
+            - name: Installing NPM Modules for CloudWatch Lambdas
+              shell: >
+                cd {{ playbook_dir }}/{{patch_name}}/cloudwatch-rules;
+                npm install
+
+            - name: updating layers in ARNs .env.{{stage}} file for apigateway-private Lambdas
+              shell: >
+                cd {{ playbook_dir }}/{{patch_name}}/cloudwatch-rules;
+                sed -i "s/Layers_OracleClient=.*/Layers_OracleClient={{ OracleClientLambdaLayerQualifiedArn }}/g" .env.{{stage}};
+                sed -i "s/Layers_OracleDataAccess=.*/Layers_OracleDataAccess={{ DataAccessLayerLambdaLayerQualifiedArn }}/g" .env.{{stage}};
+                sed -i "s/Layers_CommonUtility=.*/Layers_CommonUtility={{ CommonUtilitiesLambdaLayerQualifiedArn }}/g" .env.{{stage}}
+              register: update_env_file_cloudwatch
+            - debug:
+                msg: "{{ update_env_file_cloudwatch }}"
+
+
+            - name: Deploying Cloud Watch Lambda Functions
+              serverless:
+                service_path: "{{ playbook_dir }}/{{patch_name}}/cloudwatch-rules"
+                stage: "{{ stage }}"
+                region: "{{ region }}"
+                #state: absent
+              register: cloudwatch_lambdas
+
+            - name: Cloud Watch Lambda Stack information
+              cloudformation_info:
+                stack_name: "{{ cloudwatch_lambdas.service_name }}"
+                region: "{{ region }}"
+              register: cloudwatch_lambdas_facts
+
+            - debug:
+                msg:  "{{ cloudwatch_lambdas_facts }}"
+          when: cloudwatch_folder.stat.exists                   
+          rescue:
+            - debug:
+                msg: "this is cloud watch lambda block"   
+        - debug:
+            msg: "cloudwatch lambda folder does not exist"
+          when: not cloudwatch_folder.stat.exists   
+        #- meta: end_play                           
+      always:
+        - name: this is always block
+          shell: >
+            pwd
+        - name: Calling list deployments    
+          include: list_deployments_tasks.yaml
+        - name: Calling list functions  
+          include: list_functions_tasks.yaml
+        - name: Calling list stack current status
+          include: get_stack_current_status_tasks.yaml

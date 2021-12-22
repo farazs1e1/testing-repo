@@ -1,0 +1,105 @@
+- hosts:
+    - all
+  remote_user: "{{ansible_user}}"
+  gather_facts: false
+  max_fail_percentage: 0
+  tasks:
+
+    - name: Gather facts
+      setup:
+        gather_subset:
+          - 'all'
+      register: gather_fact_data
+    - include_vars:
+        file: "vars.yaml"
+
+    # - name:
+    #   shell: >
+    #    ls {{ playbook_dir }}/{{patch_name}}
+    #   register: out
+    # - debug:
+    #     msg: "{{ out }}"  
+    # - name : Find install dirs
+    #   find:
+    #     paths: "{{ playbook_dir }}/{{patch_name}}"
+    #     file_type: directory
+    #     recurse: no
+    #   register: output     
+
+    # - debug:
+    #     msg:
+    #     - "{{output.files[0].path}}"
+    #     - "{{output.files[1].path}}"  
+    # - set_fact:
+    #     first: "{{output.files[0].path}}"
+ 
+    # - meta: end_play
+
+    - name: Taking information of existing API Gateway SWAP Lambda Stack Current status 
+      shell: >
+        aws cloudformation describe-stacks --stack-name apigateway-swap-lambda-{{stage}} --region {{region}}
+      register: swap
+
+    - name: Taking information of existing digitalbanking-config-encryption-dev Stack Current status 
+      shell: >
+        aws cloudformation describe-stacks --stack-name digitalbanking-config-encryption-{{stage}} --region {{region}}
+      register: dgb
+
+    - name: Taking information of existing API Gateway private Lambda Stack Current status 
+      shell: >
+        aws cloudformation describe-stacks --stack-name apigateway-private-lambda-{{stage}} --region {{region}}
+      register: private
+
+    - name: Taking information of existing Cloudwatch Lambda Stack Current status 
+      shell: >
+        aws cloudformation describe-stacks --stack-name cloudwatch-rules-{{stage}} --region {{region}}
+      register: cloudwatch
+
+    - name: Taking information of existing API Gateway SWAP Lambda Stack Current status 
+      shell: >
+        aws cloudformation describe-stacks --stack-name lambda-layers-{{stage}} --region {{region}}
+      register: layers                        
+
+    # - debug:
+    #     msg: "{{ stack1.stdout | from_json }}"
+    
+    - set_fact:
+        swap_json: "{{ swap.stdout | from_json }}"
+    - set_fact:
+        dgb_json: "{{ dgb.stdout | from_json }}"        
+    - set_fact:
+        private_json: "{{ private.stdout | from_json }}"         
+    - set_fact:
+        cloudwatch_json: "{{ cloudwatch.stdout | from_json }}"  
+    - set_fact:
+        layers_json: "{{ layers.stdout | from_json }}"          
+
+    - name: API Gateway SWAP Lambda Stack Current status
+      debug:
+        msg:
+        - "{{ swap_json.Stacks[0].StackStatus }}"
+        - "{{ swap_json.Stacks[0].LastUpdatedTime }}" 
+
+    - name: digitalbanking-config-encryption-dev Stack Current status
+      debug:
+        msg:
+        - "{{ dgb_json.Stacks[0].StackStatus }}"
+        - "{{ dgb_json.Stacks[0].LastUpdatedTime }}" 
+
+    - name: API Gateway Private Lambda Stack Current status
+      debug:
+        msg:
+        - "{{ private_json.Stacks[0].StackStatus }}"
+        - "{{ private_json.Stacks[0].LastUpdatedTime }}"      
+
+    - name: CloudWatch Rules Stack Current status
+      debug:
+        msg:
+        - "{{ cloudwatch_json.Stacks[0].StackStatus }}"
+        - "{{ cloudwatch_json.Stacks[0].LastUpdatedTime }}"     
+
+    - name: Lambda layers Stack Current status
+      debug:
+        msg:
+        - "{{ layers_json.Stacks[0].StackStatus }}"
+        - "{{ layers_json.Stacks[0].LastUpdatedTime }}"                         

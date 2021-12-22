@@ -1,0 +1,4 @@
+region: eu-west-2
+stage: dev
+timestamp: 12345
+patch_name: third_patch

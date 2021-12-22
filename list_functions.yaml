@@ -1,0 +1,58 @@
+- hosts:
+    - all
+  remote_user: "{{ansible_user}}"
+  gather_facts: false
+  max_fail_percentage: 0
+  tasks:
+
+    - name: Gather facts
+      setup:
+        gather_subset:
+          - 'all'
+
+      register: gather_fact_data
+    - include_vars:
+        file: "vars.yaml"
+################################################### SWAP Lambdas
+
+    - name: Checking Existing Deployments of SWAP Lambdas
+      shell: >
+       cd {{ playbook_dir }}/{{ patch_name}}/apigateway-swap-lambda;
+       sls deploy list functions --stage "{{ stage }}" > swap_lambdas.txt
+      register: swap_deployments
+
+    - debug:
+        msg: "{{ swap_deployments.stdout_lines }}"
+
+################################################### digitalbanking-config-encryption-only
+
+    - name: Checking Existing Deployments of digitalbanking-config-encryption-only
+      shell: >
+       cd {{ playbook_dir }}/{{ patch_name}}/digitalbanking-config-encryption-only;
+       sls deploy list functions --stage "{{ stage }}" >  dgb_lambdas.txt
+      register: dgb_deployments
+
+    - debug:
+        msg: "{{ dgb_deployments.stdout_lines }}"
+
+################################################### apigateway-private Lambdas
+
+    - name: Checking Existing Deployments of apigateway-private Lambdas
+      shell: >
+       cd {{ playbook_dir }}/{{ patch_name}}/apigateway-private-lambda;
+       sls deploy list functions --stage "{{ stage }}" >  private_lambdas.txt
+      register: private_deployments
+
+    - debug:
+        msg: "{{ private_deployments.stdout_lines }}"
+
+###################################################  CloudWatch Lambdas
+
+    - name: Checking Existing Deployments of CloudWatch Lambdas
+      shell: >
+       cd {{ playbook_dir }}/{{ patch_name}}/cloudwatch-rules;
+       sls deploy list functions --stage "{{ stage }}" >  cloudwatch_lambdas.txt
+      register: cloudwatch_deployments
+
+    - debug:
+        msg: "{{ cloudwatch_deployments.stdout_lines }}"

@@ -1,0 +1,95 @@
+
+- name: Gather facts
+  setup:
+    gather_subset:
+      - 'all'
+
+  register: gather_fact_data
+- include_vars:
+    file: "vars.yaml"
+################################################### SWAP Lambdas
+- name: checking swap lambda folder exists
+  stat:
+    path: "{{ playbook_dir }}/{{patch_name}}/apigateway-swap-lambda"
+  register: swap_folder
+- block:
+    - name: Checking Existing Deployments of SWAP Lambdas
+      shell: >
+        cd {{ playbook_dir }}/{{patch_name}}/apigateway-swap-lambda;
+        sls deploy list --stage "{{ stage }}" > swap_deployments.txt;
+      register: swap_deployments
+
+    - debug:
+        msg: "{{ swap_deployments.stdout_lines  }}"
+  when: swap_folder.stat.exists      
+  rescue:
+    - debug:
+        msg: "skipping swap deployment"
+  
+- debug:
+    msg: "SWAP lambda folder does not exist"
+  when: not swap_folder.stat.exists        
+
+################################################### digitalbanking-config-encryption-only
+- name: checking digitalbanking lambda folder exists
+  stat:
+    path: "{{ playbook_dir }}/{{patch_name}}/digitalbanking-config-encryption-only"
+  register: digitalbanking_folder
+- block:
+    - name: Checking Existing Deployments of digitalbanking-config-encryption-only
+      shell: >
+        cd {{ playbook_dir }}/{{patch_name}}/digitalbanking-config-encryption-only;
+        sls deploy list --stage "{{ stage }}" > dgb_deployments.txt;
+      register: dgb_deployments
+
+    - debug:
+        msg: "{{ dgb_deployments.stdout_lines }}"
+  when: digitalbanking_folder.stat.exists       
+  rescue:
+    - debug:
+        msg: "skipping digitalbanking"
+- debug:
+    msg: "digitalbanking lambda folder does not exist"
+  when: not digitalbanking_folder.stat.exists          
+################################################### apigateway-private Lambdas
+- name: checking apigatway private lambda folder exists
+  stat:
+    path: "{{ playbook_dir }}/{{patch_name}}/apigateway-private-lambda"
+  register: private_folder 
+- block:
+    - name: Checking Existing Deployments of apigateway-private Lambdas
+      shell: >
+        cd {{ playbook_dir }}/{{patch_name}}/apigateway-private-lambda;
+        sls deploy list --stage "{{ stage }}" > private_deployments.txt;
+      register: private_deployments
+
+    - debug:
+        msg: "{{ private_deployments.stdout_lines }}"
+  when: private_folder.stat.exists        
+  rescue:
+    - debug:
+        msg: "skipping private"
+- debug:
+    msg: "private lambda folder does not exist"
+  when: not private_folder.stat.exists        
+###################################################  CloudWatch Lambdas
+- name: checking cloudwatch rules lambda folder exists
+  stat:
+    path: "{{ playbook_dir }}/{{patch_name}}/cloudwatch-rules"
+  register: cloudwatch_folder 
+- block:
+    - name: Checking Existing Deployments of CloudWatch Lambdas
+      shell: >
+        cd {{ playbook_dir }}/{{patch_name}}/cloudwatch-rules;
+        sls deploy list --stage "{{ stage }}" > cloudwatch_deployments.txt;
+      register: cloudwatch_deployments
+
+    - debug:
+        msg: "{{ cloudwatch_deployments.stdout_lines }}"
+  when: cloudwatch_folder.stat.exists      
+  rescue:
+    - debug:
+        msg: "skipping CloudWatch "    
+- debug:
+    msg: "cloudwatch lambda folder does not exist"
+  when: not cloudwatch_folder.stat.exists         
